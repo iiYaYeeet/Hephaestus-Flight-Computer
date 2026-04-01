@@ -40,7 +40,7 @@ VectorInt16 gy2;         // [x, y, z]            Gyro sensor measurements
 
 #define CHIP_ID_REG 0xD0
 //BMP
-Adafruit_BMP280 bmp;
+Adafruit_BMP280 bmp(&Wire2);
 Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
 Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
@@ -59,18 +59,32 @@ void setup()
   Serial.println("Initializing pins");
 
 //INITALIZE BMP
+  unsigned status;
   Serial.println("Initializing BMP");
-  bmp.begin(0x76, &Wire2);
+  status = bmp.begin(0x76);
+
+  if (!status) 
+  {
+    Serial.println(F("Could not find a valid BMP280 sensor, check wiring or try a different address!"));
+    Serial.print("SensorID was: 0x"); Serial.println(bmp.sensorID(),16);
+  }
+  Serial.print("BMP ID was: 0x"); Serial.println(bmp.sensorID(),16);
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
+                  Adafruit_BMP280::FILTER_X16,      /* Filtering. */
+                  Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
 
 //INITALIZE MPU1
   Serial.println("Initializing MPU1");
   mpu1.initialize();
   mpu1.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  mpu1.setFullScaleAccelRange(2);
 
   mpu1.CalibrateAccel(30);  // Calibration Time: generate offsets and calibrate our MPU6050
-  mpu1.CalibrateGyro(30);
-  Serial.println("These are the Active offsets: ");
+  mpu1.CalibrateGyro(10);
+  Serial.println("These are the Active offsets: \n");
   mpu1.PrintActiveOffsets();//Get expected DMP packet size for later comparison
 
   digitalWrite(goled,HIGH);
@@ -86,11 +100,12 @@ void setup()
   Serial.println("Initializing MPU2");
   mpu2.initialize();
   mpu2.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  mpu1.setFullScaleAccelRange(2);
 
 
   mpu2.CalibrateAccel(30);  // Calibration Time: generate offsets and calibrate our MPU6050
-  mpu2.CalibrateGyro(30);
-  Serial.println("These are the Active offsets: ");
+  mpu2.CalibrateGyro(10);
+  Serial.println("These are the Active offsets: \n");
   mpu2.PrintActiveOffsets();
 
   digitalWrite(goled,HIGH);
@@ -148,9 +163,7 @@ void loop()
   int16_t ax2, ay2, az2, gx2, gy2, gz2; //MPU2
   mpu2.getMotion6(&ax2, &ay2, &az2, &gx2, &gy2, &gz2);
 
-
   int16_t avg_ax, avg_ay, avg_az, avg_gx, avg_gy, avg_gz;
-
   avg_ax = avg(ax1,ax2);
   avg_ay = avg(ay1,ay2);
   avg_az = avg(az1,az2);
@@ -158,38 +171,26 @@ void loop()
   avg_gy = avg(gy1,gy2);
   avg_gz = avg(gz1,gz2);
 
-  Serial.print("AccelX: "); 
-  Serial.println(avg_ax);
-  Serial.print("AccelY: "); 
-  Serial.println(avg_ay);
-  Serial.print("AccelZ: "); 
-  Serial.println(avg_az);
-  Serial.print("GyroX: "); 
-  Serial.println(avg_gx/60);
-  Serial.print("GyroY: "); 
-  Serial.println(avg_gy/60);
-  Serial.print("GyroZ: "); 
-  Serial.println(avg_gz/60);
+  float f = bmp.readTemperature();
+  float P = bmp.readPressure()/100;
+  float A = bmp.readAltitude(1013);
+
+
+  //Serial.print("AccelX: "); 
+  formatpacket(1,f,A,P,avg_ax/16384.0,avg_ay/16384.0,avg_az/16384.0,avg_gx/131,avg_gy/131,avg_gz/131);
   delay(50);
-
-  /*Serial.print("MPU1 AccelX: "); Serial.print(ax1);
-  Serial.print(" AccelY: "); Serial.print(ay1);
-  Serial.print(" AccelZ: "); Serial.print(az1);
-  Serial.print(" GyroX: "); Serial.print(gx1);
-  Serial.print(" GyroY: "); Serial.print(gy1);
-  Serial.print(" GyroZ: "); Serial.println(gz1);
-
-  Serial.print("MPU2 AccelX: "); Serial.print(ax2);
-  Serial.print(" AccelY: "); Serial.print(ay2);
-  Serial.print(" AccelZ: "); Serial.print(az2);
-  Serial.print(" GyroX: "); Serial.print(gx2);
-  Serial.print(" GyroY: "); Serial.print(gy2);
-  Serial.print(" GyroZ: "); Serial.println(gz2);*/
 }
 
 int16_t avg(int16_t val1, int16_t val2)
 {
   int16_t total = val1+val2;
   return total/2;
+}
+
+void formatpacket(int16_t time, int16_t temp, int16_t alt, int16_t baro, int16_t ax, int16_t ay, int16_t az, int16_t gx, int16_t gy, int16_t gz)
+{
+  char buffer[120];
+  sprintf(buffer, "%i , %04d , %04d , %04d , %04d , %04d , %04d , %04d , %04d , %04d", time,temp,alt,baro,ax,ay,az,gx,gy,gz);
+  Serial.println(buffer);
 }
 
