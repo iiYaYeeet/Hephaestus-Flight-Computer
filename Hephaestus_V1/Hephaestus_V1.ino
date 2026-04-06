@@ -51,7 +51,7 @@ void setup()
   pinMode(ledrxtx, OUTPUT);
   pinMode(ledon, OUTPUT);
   pinMode(goled, OUTPUT);
-  Serial.println("Initializing pins");
+  Serial.println("Initializing Pins");
 
 //------------------------------------------- SENSOR INIT ---------------------------------------------------
 //------------------------------------------- INITALIZE BMP -------------------------------------------------
@@ -89,7 +89,7 @@ void setup()
 
   mpu1.CalibrateAccel(30);  // Calibration Time: generate offsets and calibrate our MPU6050
   mpu1.CalibrateGyro(10);
-  Serial.println("These are the Active offsets: \n");
+  Serial.println("These are the Active offsets: ");
   mpu1.PrintActiveOffsets();//Get expected DMP packet size for later comparison
 
   digitalWrite(goled,HIGH);
@@ -165,16 +165,10 @@ void setup()
   }
 
   digitalWrite(goled,HIGH);
-  delay(120);
+  delay(600);
   digitalWrite(goled,LOW);
-  delay(120);
+  delay(1200);
   digitalWrite(goled,HIGH);
-  delay(120);
-  digitalWrite(goled,LOW);
-  delay(120);
-  digitalWrite(goled,HIGH);
-  delay(240);
-  digitalWrite(goled,LOW);
   Serial.println("System check complete. Logging started");
 }
 
@@ -187,7 +181,7 @@ void loop()
   int16_t ax2, ay2, az2, gx2, gy2, gz2; //MPU2
   mpu2.getMotion6(&ax2, &ay2, &az2, &gx2, &gy2, &gz2);
 
-  int16_t avg_ax, avg_ay, avg_az, avg_gx, avg_gy, avg_gz;
+  float avg_ax, avg_ay, avg_az, avg_gx, avg_gy, avg_gz;
   avg_ax = avg(ax1,ax2);
   avg_ay = avg(ay1,ay2);
   avg_az = avg(az1,az2);
@@ -202,20 +196,32 @@ void loop()
 
 
 //------------------------------------------- FORMAT LOG -------------------------------------------------
-  formatpacket(logstep,f,A,P,avg_ax/16384.0,avg_ay/16384.0,avg_az/16384.0,avg_gx/131,avg_gy/131,avg_gz/131);
-  delay(50);
+  formatpacket(logstep,f,A,P,avg_ax / 16384.0,avg_ay / 16384.0,avg_az / 16384.0,avg_gx / 131,avg_gy  / 131,avg_gz  / 131);
+  delay(100);
 }
 
-int16_t avg(int16_t val1, int16_t val2)
+float avg(int16_t val1, int16_t val2)
 {
   int16_t total = val1+val2;
-  return total/2;
+  return ((float)total)/2;
 }
 
-void formatpacket(int16_t time, int16_t temp, int16_t alt, int16_t baro, int16_t ax, int16_t ay, int16_t az, int16_t gx, int16_t gy, int16_t gz)
+void formatpacket(int16_t time, int16_t temp, int16_t alt, int16_t baro, float ax, float ay, float az, float gx, float gy, float gz)
 {
   char buffer[120];
-  sprintf(buffer, "%i , %04d , %04d , %04d , %04d , %04d , %04d , %04d , %04d , %04d", time,temp,alt,baro,ax,ay,az,gx,gy,gz);
-  Serial.println(buffer);
+  sprintf(buffer, "%06i | %04d | %04d | %04d",time,temp,alt,baro);
+  //Serial.print(buffer);
+  //Serial.print(" | ");
+  Serial.print(ax , 4);
+  Serial.print(" | ");
+  Serial.print(ay , 4);
+  Serial.print(" | ");
+  Serial.print(az , 4);
+  Serial.print(" | ");
+  Serial.print(gx , 4);
+  Serial.print(" | ");
+  Serial.print(gy , 4);
+  Serial.print(" | ");
+  Serial.println(gz);
 }
 
