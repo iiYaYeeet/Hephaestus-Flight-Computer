@@ -2,6 +2,12 @@
 #include <Adafruit_BMP280.h>
 #include "MPU6050_6Axis_MotionApps20.h"
 
+#define TEMPERATURE_OFFSET 21 // As defined in documentation
+
+#define INTERVAL_MS_PRINT 100
+
+#define G 9.80665
+
 /*
 * Hephaestus flight computer code
 * 1.0
@@ -20,6 +26,22 @@ const int goled = 13;
 
 //Log time value
 int logstep = 0;
+unsigned long prevTime = 0;
+float dt;
+
+//output values
+float pitch;
+float roll;
+float pitchAcc;
+float rollAcc;
+float P_launch = 0;
+
+//vec3 struct
+struct Vector3 {
+  float x;
+  float y;
+  float z;
+};
 
 //------------------------------------------- SENSOR DECLARE ---------------------------------------------------
 
@@ -45,6 +67,7 @@ void setup()
  //SERIAL & I2C
   Serial.begin(9600);
   Wire2.begin();
+  Wire2.setClock(100000); 
   
 //PINOUT
   pinMode(buzzer, OUTPUT);
@@ -71,6 +94,9 @@ void setup()
                   Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
+  P_launch = bmp.readPressure() / 100.0F; // convert Pa to hPa
+  Serial.print("Launch pressure: "); Serial.println(P_launch);                
+
   digitalWrite(goled,HIGH);
   delay(60);
   digitalWrite(goled,LOW);
@@ -84,11 +110,13 @@ void setup()
 //------------------------------------------- INITALIZE MPU1 -------------------------------------------------
   Serial.println("Initializing MPU1");
   mpu1.initialize();
-  mpu1.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
-  mpu1.setFullScaleAccelRange(2);
+  mpu1.setFullScaleGyroRange(MPU6050_GYRO_FS_1000);
+  mpu1.setFullScaleAccelRange(3);
+  mpu1.setDLPFMode(1);
+  delay(100);
 
   mpu1.CalibrateAccel(30);  // Calibration Time: generate offsets and calibrate our MPU6050
-  mpu1.CalibrateGyro(10);
+  mpu1.CalibrateGyro(30);
   Serial.println("These are the Active offsets: ");
   mpu1.PrintActiveOffsets();//Get expected DMP packet size for later comparison
 
@@ -104,12 +132,13 @@ void setup()
 //------------------------------------------- INITALIZE MPU2 -------------------------------------------------
   Serial.println("Initializing MPU2");
   mpu2.initialize();
-  mpu2.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
-  mpu1.setFullScaleAccelRange(2);
-
+  mpu2.setFullScaleGyroRange(MPU6050_GYRO_FS_1000);
+  mpu2.setFullScaleAccelRange(3);
+  mpu2.setDLPFMode(1);
+  delay(100);
 
   mpu2.CalibrateAccel(30);  // Calibration Time: generate offsets and calibrate our MPU6050
-  mpu2.CalibrateGyro(10);
+  mpu2.CalibrateGyro(30);
   Serial.println("These are the Active offsets: \n");
   mpu2.PrintActiveOffsets();
 
@@ -172,56 +201,117 @@ void setup()
   Serial.println("System check complete. Logging started");
 }
 
+
+Vector3 remap(Vector3 raw) 
+{
+    Vector3 mapped;
+
+    // Pick axis with largest magnitude as vertical
+    float absX = abs(raw.x), absY = abs(raw.y), absZ = abs(raw.z);
+
+    if (absX > absY && absX > absZ) 
+    {// X is vertical
+        mapped.x = raw.x; mapped.y = raw.y; mapped.z = raw.z;
+    } 
+    else if (absY > absZ) 
+    {// Y is vertical
+        mapped.x = raw.y; mapped.y = raw.x; mapped.z = raw.z;
+        if (raw.y < 0) mapped.x *= -1;
+    } 
+    else 
+    {// Z is vertical
+        mapped.x = raw.x; mapped.y = raw.y; mapped.z = raw.z;
+    }
+    return mapped;
+}
+
 void loop()
 {
   logstep++;
+
+  if (prevTime == 0) 
+  {
+  prevTime = micros();
+  return;
+  }
+
+  unsigned long currentTime = micros();
+  dt = (currentTime - prevTime) / 1000000.0;
+  prevTime = currentTime;
+
 //------------------------------------------- MPU LOG -------------------------------------------------
   int16_t ax1, ay1, az1, gx1, gy1, gz1; //MPU1
-  mpu1.getMotion6(&ax1, &ay1, &az1, &gx1, &gy1, &gz1);
   int16_t ax2, ay2, az2, gx2, gy2, gz2; //MPU2
+
+  mpu1.getMotion6(&ax1, &ay1, &az1, &gx1, &gy1, &gz1);
+  delayMicroseconds(500);
   mpu2.getMotion6(&ax2, &ay2, &az2, &gx2, &gy2, &gz2);
 
-  float avg_ax, avg_ay, avg_az, avg_gx, avg_gy, avg_gz;
-  avg_ax = avg(ax1,ax2);
-  avg_ay = avg(ay1,ay2);
-  avg_az = avg(az1,az2);
-  avg_gx = avg(gx1,gx2);
-  avg_gy = avg(gy1,gy2);
-  avg_gz = avg(gz1,gz2);
+  Vector3 a1 = { ax1/2048.0, ay1/2048.0, az1/2048.0 };
+  Vector3 a2 = { ax2/2048.0, ay2/2048.0, az2/2048.0 };
+  Vector3 g1 = { gx1/32.8, gy1/32.8, gz1/32.8 };
+  Vector3 g2 = { gx2/32.8, gy2/32.8, gz2/32.8 };
+
+
+  Vector3 accel = { (a1.x+a2.x)/2, (a1.y+a2.y)/2, (a1.z+a2.z)/2 };
+
+  float mag = sqrt(accel.x*accel.x + accel.y*accel.y + accel.z*accel.z);
+  accel.x /= mag; accel.y /= mag; accel.z /= mag;
+
+  Vector3 gyro =  { (g1.x+g2.x)/2, (g1.y+g2.y)/2, (g1.z+g2.z)/2 };
+
+  accel = remap(accel);
 
 //------------------------------------------- BMP LOG -------------------------------------------------
-  float f = bmp.readTemperature();
-  float P = bmp.readPressure()/100;
-  float A = bmp.readAltitude(1013);
+
+  float P_now = bmp.readPressure() / 100.0F;// current pressure in hPa
+  float temp = bmp.readTemperature();// temperature in °C
+  float altitude = 8434.0 * log(P_launch / P_now); // meters
+
+  temp = temp * 9.0 / 5.0 + 32.0;
+  altitude = altitude * 3.28084;
 
 
 //------------------------------------------- FORMAT LOG -------------------------------------------------
-  formatpacket(logstep,f,A,P,avg_ax / 16384.0,avg_ay / 16384.0,avg_az / 16384.0,avg_gx / 131,avg_gy  / 131,avg_gz  / 131);
-  delay(100);
+  formatpacket(logstep,temp,altitude,P_now,accel,gyro);
+  delay(10);
 }
 
-float avg(int16_t val1, int16_t val2)
+void formatpacket(int16_t time, int16_t temp, int16_t alt, int16_t baro, Vector3 accel, Vector3 gyro)
 {
-  int16_t total = val1+val2;
-  return ((float)total)/2;
-}
+  float pitchAcc = atan2(accel.y, accel.z) * RAD_TO_DEG;
+  float rollAcc  = atan2(-accel.x, accel.z) * RAD_TO_DEG;
 
-void formatpacket(int16_t time, int16_t temp, int16_t alt, int16_t baro, float ax, float ay, float az, float gx, float gy, float gz)
-{
+  pitch = 0.998 * (pitch + gyro.x * dt) + 0.002 * pitchAcc;
+  roll  = 0.998 * (roll  + gyro.y * dt) + 0.002 * rollAcc;
+
+
   char buffer[120];
   sprintf(buffer, "%06i | %04d | %04d | %04d",time,temp,alt,baro);
-  //Serial.print(buffer);
-  //Serial.print(" | ");
-  Serial.print(ax , 4);
+  //temp,alt,baro
+  Serial.print(buffer);
   Serial.print(" | ");
-  Serial.print(ay , 4);
+
+  //pitch and roll
+  Serial.print(pitch , 3);
   Serial.print(" | ");
-  Serial.print(az , 4);
+  Serial.print(roll , 3);
   Serial.print(" | ");
-  Serial.print(gx , 4);
+  
+  //raw accel values
+  Serial.print(accel.x , 4);
   Serial.print(" | ");
-  Serial.print(gy , 4);
+  Serial.print(accel.y , 4);
   Serial.print(" | ");
-  Serial.println(gz);
+  Serial.print(accel.z , 4);
+  Serial.print(" | ");
+
+  //raw gyro values
+  Serial.print(gyro.x , 4);
+  Serial.print(" | ");
+  Serial.print(gyro.y , 4);
+  Serial.print(" | ");
+  Serial.println(gyro.z , 4);
+
 }
 
