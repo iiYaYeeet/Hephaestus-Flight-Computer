@@ -2,10 +2,7 @@
 #include <Adafruit_BMP280.h>
 #include "MPU6050_6Axis_MotionApps20.h"
 
-#define TEMPERATURE_OFFSET 21 // As defined in documentation
-
-#define INTERVAL_MS_PRINT 100
-
+#define CHIP_ID_REG 0xD0
 #define G 9.80665
 
 /*
@@ -43,7 +40,13 @@ struct Vector3 {
   float z;
 };
 
-//------------------------------------------- SENSOR DECLARE ---------------------------------------------------
+//------------------------------------------- SENSOR DECLARE ------------------------------------------------------
+
+/*
+* MPU1 at 0x68
+* MPU2 at 0x69, ADO High
+* BMP280 at 0x76
+*/
 
 //MPU1
 MPU6050 mpu1(0x68, &Wire2);
@@ -53,17 +56,14 @@ MPU6050 mpu1(0x68, &Wire2);
 MPU6050 mpu2(0x69, &Wire2);
 //Found device at 0x69
 
-#define CHIP_ID_REG 0xD0
 //BMP
-//Found device at 0x76
 Adafruit_BMP280 bmp(&Wire2);
-Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
-Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
+//Found device at 0x76
 
 
 void setup() 
 {
-//------------------------------------------- SERIAL AND PIN INIT -------------------------------------------
+#pragma region ------------------------------------------- SERIAL AND PIN INIT ----------------------------------------------
  //SERIAL & I2C
   Serial.begin(9600);
   Wire2.begin();
@@ -76,8 +76,11 @@ void setup()
   pinMode(goled, OUTPUT);
   Serial.println("Initializing Pins");
 
-//------------------------------------------- SENSOR INIT ---------------------------------------------------
-//------------------------------------------- INITALIZE BMP -------------------------------------------------
+#pragma endregion
+
+#pragma region ------------------------------------------- SENSOR INIT ---------------------------------------------------
+
+  #pragma region ------------------------------------------- INITALIZE BMP -------------------------------------------------
   unsigned status;
   Serial.println("Initializing BMP");
   status = bmp.begin(0x76);
@@ -105,9 +108,9 @@ void setup()
   delay(60);
   digitalWrite(goled,LOW);
   delay(60);                
+  #pragma endregion
 
-
-//------------------------------------------- INITALIZE MPU1 -------------------------------------------------
+  #pragma region ------------------------------------------- INITALIZE MPU1 -------------------------------------------------
   Serial.println("Initializing MPU1");
   mpu1.initialize();
   mpu1.setFullScaleGyroRange(MPU6050_GYRO_FS_1000);
@@ -128,8 +131,9 @@ void setup()
   delay(60);
   digitalWrite(goled,LOW);
   delay(60);
+  #pragma endregion
 
-//------------------------------------------- INITALIZE MPU2 -------------------------------------------------
+  #pragma region ------------------------------------------- INITALIZE MPU2 -------------------------------------------------
   Serial.println("Initializing MPU2");
   mpu2.initialize();
   mpu2.setFullScaleGyroRange(MPU6050_GYRO_FS_1000);
@@ -154,9 +158,11 @@ void setup()
   Wire2.beginTransmission(0x76);
   Wire2.write(CHIP_ID_REG);
   Wire2.endTransmission();
+  #pragma endregion
 
+#pragma endregion
 
-//------------------------------------------- BMP TEST -------------------------------------------------
+#pragma region ------------------------------------------- BMP TEST -------------------------------------------------
   Wire2.requestFrom(0x76, 1);
   if (Wire2.available()) {
     byte id = Wire2.read();
@@ -171,9 +177,9 @@ void setup()
   } else {
     Serial.println("No response from BMP280.");
   }
+#pragma endregion
 
-
-//------------------------------------------- MPU TEST -------------------------------------------------
+#pragma region ------------------------------------------- MPU TEST -------------------------------------------------
 //MPU1
   if (!mpu1.testConnection()) 
   {
@@ -192,13 +198,16 @@ void setup()
   {
     Serial.println("MPU2 Online");
   }
-
+#pragma endregion
+  
+  
   digitalWrite(goled,HIGH);
   delay(600);
   digitalWrite(goled,LOW);
   delay(1200);
   digitalWrite(goled,HIGH);
   Serial.println("System check complete. Logging started");
+
 }
 
 
@@ -239,7 +248,8 @@ void loop()
   dt = (currentTime - prevTime) / 1000000.0;
   prevTime = currentTime;
 
-//------------------------------------------- MPU LOG -------------------------------------------------
+#pragma region ------------------------------------------- MPU LOG -------------------------------------------------
+
   int16_t ax1, ay1, az1, gx1, gy1, gz1; //MPU1
   int16_t ax2, ay2, az2, gx2, gy2, gz2; //MPU2
 
@@ -262,7 +272,9 @@ void loop()
 
   accel = remap(accel);
 
-//------------------------------------------- BMP LOG -------------------------------------------------
+#pragma endregion
+
+#pragma region ------------------------------------------- BMP LOG -------------------------------------------------
 
   float P_now = bmp.readPressure() / 100.0F;// current pressure in hPa
   float temp = bmp.readTemperature();// temperature in °C
@@ -271,47 +283,55 @@ void loop()
   temp = temp * 9.0 / 5.0 + 32.0;
   altitude = altitude * 3.28084;
 
+#pragma endregion
 
-//------------------------------------------- FORMAT LOG -------------------------------------------------
+#pragma region ------------------------------------------- FORMAT LOG -------------------------------------------------
+
   formatpacket(logstep,temp,altitude,P_now,accel,gyro);
   delay(10);
+
+#pragma endregion
+
 }
 
 void formatpacket(int16_t time, int16_t temp, int16_t alt, int16_t baro, Vector3 accel, Vector3 gyro)
 {
+
+#pragma region ------------------------------------------- COMPLEMENT FILTER ------------------------------------------------- 
   float pitchAcc = atan2(accel.y, accel.z) * RAD_TO_DEG;
   float rollAcc  = atan2(-accel.x, accel.z) * RAD_TO_DEG;
 
   pitch = 0.998 * (pitch + gyro.x * dt) + 0.002 * pitchAcc;
   roll  = 0.998 * (roll  + gyro.y * dt) + 0.002 * rollAcc;
+#pragma endregion
 
-
+#pragma region ------------------------------------------- BUFFER LOGGING (TIME TEMP ALT BARO) -------------------------------------------------
   char buffer[120];
   sprintf(buffer, "%06i | %04d | %04d | %04d",time,temp,alt,baro);
   //temp,alt,baro
   Serial.print(buffer);
   Serial.print(" | ");
-
-  //pitch and roll
+#pragma endregion
+#pragma region ------------------------------------------- PITCH ROLL LOG -------------------------------------------------
   Serial.print(pitch , 3);
   Serial.print(" | ");
   Serial.print(roll , 3);
   Serial.print(" | ");
-  
-  //raw accel values
+#pragma endregion  
+#pragma region ------------------------------------------- ACCEL X Y Z LOG -------------------------------------------------
   Serial.print(accel.x , 4);
   Serial.print(" | ");
   Serial.print(accel.y , 4);
   Serial.print(" | ");
   Serial.print(accel.z , 4);
   Serial.print(" | ");
-
-  //raw gyro values
+#pragma endregion
+#pragma region ------------------------------------------- GYRO X Y Z LOG -------------------------------------------------
   Serial.print(gyro.x , 4);
   Serial.print(" | ");
   Serial.print(gyro.y , 4);
   Serial.print(" | ");
   Serial.println(gyro.z , 4);
-
+#pragma endregion
 }
 
