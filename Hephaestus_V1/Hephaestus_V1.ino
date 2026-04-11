@@ -19,7 +19,7 @@
 const int buzzer = 8;
 const int ledrxtx = 6;
 const int ledon = 9;
-const int goled = 13;
+const int goled = 9;
 
 //Log time value
 int logstep = 0;
@@ -206,7 +206,7 @@ void setup()
   digitalWrite(goled,LOW);
   delay(1200);
   digitalWrite(goled,HIGH);
-  Serial.println("System check complete. Logging started");
+  Serial.println("System check complete. Logging started.");
 
 }
 
@@ -288,7 +288,7 @@ void loop()
 #pragma region ------------------------------------------- FORMAT LOG -------------------------------------------------
 
   formatpacket(logstep,temp,altitude,P_now,accel,gyro);
-  delay(10);
+  delay(50);
 
 #pragma endregion
 
