@@ -207,6 +207,7 @@ void setup()
   delay(1200);
   digitalWrite(goled,HIGH);
   Serial.println("System check complete. Logging started.");
+  Serial.println("  TIME  | TEMP |  ALT | BARO | PITCH | ROLL  |  ACCX  |  ACCY  |  ACCZ  |  GYRX  |  GYRY  |  GYRZ");
 
 }
 
